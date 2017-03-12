@@ -1,0 +1,225 @@
+se agregaron dos discos al sistema
+/dev/sdb y /dev/sdc
+se creo particion primaria para cada uno de los discos.
+
+instalación del paquete mdadm
+sudo apt-get install mdadm 
+
+cargar modulo raid
+sudo modprobe raid0
+
+creacion del md
+sudo mknod /dev/md0 b 9 0
+
+creacion del raid
+sudo mdadm -Cv /dev/md0 -l0 -n2 /dev/sdb1 /dev/sdc1
+mdadm: chunk size defaults to 512K
+mdadm: Defaulting to version 1.2 metadata
+mdadm: array /dev/md0 started.
+
+verificando el raid 
+cat /proc/mdstat 
+Personalities : [linear] [multipath] [raid0] [raid1] [raid6] [raid5] [raid4] [raid10] 
+md0 : active raid0 sdc1[1] sdb1[0]
+      2093056 blocks super 1.2 512k chunks
+
+-formateo del raid
+sudo mkfs.ext4 /dev/md0 
+mke2fs 1.42.13 (17-May-2015)
+Se está creando un sistema de ficheros con 523264 bloques de 4k y 130816 nodos-i
+UUID del sistema de ficheros: b1adcb1a-9c6b-4658-b8aa-edad6e3dd787
+Respaldo del superbloque guardado en los bloques: 
+	32768, 98304, 163840, 229376, 294912
+
+Reservando las tablas de grupo: hecho                           
+Escribiendo las tablas de nodos-i: hecho                           
+Creando el fichero de transacciones (8192 bloques): hecho
+Escribiendo superbloques y la información contable del sistema de ficheros: hecho
+
+creacion carpeta mediastream
+mkdir /mediastream
+montaje del raid
+
+sudo mount /dev/md0 /mediastream
+agregar el raid al fichero /etc/fstab
+/dev/md0        /mediastream	ext4	defaults	0 0
+
+despues ejecute un reinicio y tuve un error con el dispositivo raid creado, cuando ingrese por el modo mantenmiento del sistema encontre que el raid creado no tenia el mismo nombre, lo extraño es que arriba lo creo correctamente como md0
+cat /proc/mdstat
+md127 : active raid0 sdc1[1] sdb1[0]
+      2093056 blocks super 1.2 512k chunks
+
+lo confirme con un blkid y efectivamente el nombre del dispositivo estaba como 
+/dev/md127: UUID="b1adcb1a-9c6b-4658-b8aa-edad6e3dd787" TYPE="ext4"
+
+cambie la linea de configuracion para el reaid en el archvo fstab
+/dev/md127        /mediastream	ext4	defaults	0 0
+
+reiniciar y listo
+
+instalacion de nginx
+admin10@srv01:~$ sudo apt-get install nginx
+
+creacion de las carpetas para los sitios
+admin10@srv01:~$ sudo mkdir -p /var/www/mediastream01/ms01
+admin10@srv01:~$ sudo mkdir -p /var/www/mediastream02/ms02
+
+asignar permisos
+admin10@srv01:~$ sudo chown -R www-data:www-data /var/www/mediastream0*
+
+creacion del index de los dos sitios
+admin10@srv01:~$ sudo vim /var/www/mediastream01/ms01/index.html
+admin10@srv01:~$ sudo vim /var/www/mediastream02/ms02/index.html
+
+creando los sitios para nginx
+admin10@srv01:~$ sudo vim /etc/nginx/sites-available/ms01
+server {
+        ## Escucha en el puerto 80 (HTTP)
+        listen   80;
+
+        ## Raíz donde se encuentra la página Web
+        root /var/www/mediastream01/ms01/;
+
+        ## Orden de prioridad de los archivos index
+        index index.html index.htm;
+
+        server_name ms01;
+}
+
+admin10@srv01:~$ sudo vim /etc/nginx/sites-available/ms02
+server {
+        ## Escucha en el puerto 80 (HTTP)
+        listen   localhost:81;
+
+        ## Raíz donde se encuentra la página Web
+        root /var/www/mediastream02/ms02/;
+
+        ## Orden de prioridad de los archivos index
+        index index.html index.htm;
+
+        server_name ms02;
+
+}
+
+
+habilitar los sitios disponibles para nginx
+admin10@srv01:~$ sudo ln -s /etc/nginx/sites-available/ms01 /etc/nginx/sites-enabled/ms01
+admin10@srv01:~$ sudo ln -s /etc/nginx/sites-available/ms02 /etc/nginx/sites-enabled/ms02
+
+
+reiniciar servicio nginx
+admin10@srv01:~$ sudo /etc/init.d/nginx restart
+[ ok ] Restarting nginx (via systemctl): nginx.service.
+
+habilitar el servicio de nginx con el inicio del sistema
+admin10@srv01:~$ sudo update-rc.d nginx enable
+
+instalacion proftpd
+sudo apt-get install proftpd
+
+configurar proftp para el usuario entre directamente a su home
+admin10@srv01:~$ sudo vim /etc/proftpd/proftpd.conf 
+
+descomentariar
+DefaultRoot ~ 
+
+creacion de usuario mediastream
+admin10@srv01:~$ sudo adduser mediastream
+Adding user `mediastream' ...
+Adding new group `mediastream' (1001) ...
+Adding new user `mediastream' (1001) with group `mediastream' ...
+Creating home directory `/home/mediastream' ...
+Copying files from `/etc/skel' ...
+Enter new UNIX password: 
+Retype new UNIX password: 
+passwd: password updated successfully
+Changing the user information for mediastream
+Enter the new value, or press ENTER for the default
+	Full Name []: 
+	Room Number []: 
+	Work Phone []: 
+	Home Phone []: 
+	Other []: 
+Is the information correct? [Y/n] y
+
+
+admin10@srv01:~$ sudo /etc/init.d/proftpd restart
+[ ok ] Restarting proftpd (via systemctl): proftpd.service.
+
+instalar mongodb
+admin10@srv01:~$ sudo apt-get install mongodb -y
+
+generar script que guarda información del sistema
+/home/admin10/recolecto_info.sh
+ 
+#!/bin/bash
+#scritp recolecta datos del sistema
+echo "Inicio informacion" >> /mediastream/recolecto_info.log
+tail -3 /var/log/syslog >> /mediastream/recolecto_info.log
+echo "Espacio usado filesystem mediastream" >> /mediastream/recolecto_info.log
+df -h | grep md127 | cut -d' ' -f9 >> /mediastream/recolecto_info.log
+echo "hash archivo" >> /mediastream/recolecto_info.log
+md5sum /var/log/auth.log >> /mediastream/recolecto_info.log
+echo "Informacion finalizada" >> /mediastream/recolecto_info.log
+
+iniciar servico de mongodb
+admin10@srv01:~$ sudo /etc/init.d/mongodb start
+[ ok ] Starting mongodb (via systemctl): mongodb.service.
+
+en este paso presente un problema y es que no queria funcionarme la instalacion de mongodb,
+a pesar de que lo intente por varios metodos de instalacion.
+la soluction que funciono y fue efectiva es la siguiente
+
+find / -name "mongo*" -exec rm -rf {} \;
+sudo apt-get autoremove --purge mongodb
+
+despues de esto nuevamente hacer la instalacion de mongodb 
+echo "deb [ arch=amd64,arm64 ] http://repo.mongodb.org/apt/ubuntu "$(lsb_release -sc)"/mongodb-org/3.4 multiverse" | sudo tee /etc/apt/sources.list.d/mongodb-3.4.list
+sudo apt-get install mongodb-org
+
+Verificar el puerto
+vim /etc/mongod.conf 
+
+iniciar el servicio de monngodb
+service mongod start
+
+recargar para el sistema
+systemctl daemon-reload
+
+ahora si iniciar el servicio
+service mongod start
+
+verificar si esta corriendo
+ps -ef|grep mongodb
+
+verificar puerto
+netstat -ntlp
+
+programar script de bases de datos
+crontab -e
+
+# ejecuta backup de bd mongodb
+20 5 * * * /home/admin10/mongo_backup.sh >> /var/log/mongo_backup.log
+
+actualizar servicio para que inicie con el sistema operativo
+sudo update-rc.d mongodb defaults
+
+instalar git
+sudo apt-get update
+sudo apt-get install build-essential libssl-dev libcurl4-gnutls-dev libexpat1-dev gettext unzip
+cd /opt/
+wget https://github.com/git/git/archive/v1.9.2.zip -O git.zip
+sudo wget https://github.com/git/git/archive/v1.9.2.zip -O git.zip
+unzip git.zip 
+sudo unzip git.zip 
+cd git-1.9.2/
+
+compartir instalacion en GitHub
+
+
+
+
+
+
+
+
